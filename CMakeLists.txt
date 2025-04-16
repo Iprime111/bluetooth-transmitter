@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(bluetooth-transmitter)
 
+# Generate clangd configuration file with respect to xtensa c/c++ standard libs
+
 execute_process(
     COMMAND bash -c "which ${CMAKE_CXX_COMPILER}"
     OUTPUT_VARIABLE BL_TRANSMITTER_XTENSA_PATH_
