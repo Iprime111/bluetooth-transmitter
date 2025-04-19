@@ -4,5 +4,6 @@ list(TRANSFORM BLUETOOTH_LIB_SOURCES PREPEND src/)
 
 idf_component_register(SRCS ${BLUETOOTH_LIB_SOURCES}
                        INCLUDE_DIRS include
-                       PRIV_REQUIRES dispatcher bt nvs_flash)
+                       REQUIRES bt dispatcher
+                       PRIV_REQUIRES nvs_flash)
 

@@ -25,6 +25,13 @@ typedef enum {
     AUDIO_STARTED,
 } AudioState;
 
+typedef struct __attribute__((packed)) {
+    uint16_t channel1;
+    uint16_t channel2;
+} AudioFrame;
+
+typedef int32_t (*AudioDataCallback)(AudioFrame *, int32_t);
+
 typedef struct {
     A2DPState connectionState;
     AudioState audioState;
@@ -35,14 +42,15 @@ typedef struct {
     esp_bd_addr_t peerBda;
 
     Dispatcher btDispatcher;
-
     TimerHandle_t heartBeatTimer;
 
     esp_avrc_rn_evt_cap_mask_t avrcNotificationEventCapabilities;
 
+    AudioDataCallback audioCallback;
+
     int constructionToken;
 } BluetoothDevice;
 
-void initBtDevice(esp_a2d_source_data_cb_t dataCallback);
+void initBtDevice(AudioDataCallback dataCallback);
 
 #endif

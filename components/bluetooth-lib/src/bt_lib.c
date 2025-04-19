@@ -57,7 +57,7 @@ static const char kDeviceName[] = "bluetooth-transmitter";
 //static const char kRemoteDeviceName[] = "HUAWEI FreeBuds 5i";
 static const char kRemoteDeviceName[] = "JBL Clip 4";
 
-static void launchDevice(uint16_t unused1, void *dataCallback);
+static void launchDevice(uint16_t unused1, void *unused2);
 
 static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
 
@@ -67,6 +67,7 @@ static void handleDiscoveryStateChanged(esp_bt_gap_cb_param_t *param);
 static void handleLegacyPinPairing(esp_bt_gap_cb_param_t *param);
 
 static void a2dpCallback(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
+static int32_t a2dpDataCallbackWrapper(uint8_t *data, int32_t length);
 
 static void heartBeatTimer(TimerHandle_t timer);
 
@@ -84,7 +85,7 @@ static void handleAVRCEvent(uint16_t event, void *param);
 static void avrcVolumeChanged();
 static void avrcNotificationEvent(uint8_t event_id, esp_avrc_rn_param_t *event_parameter);
 
-void initBtDevice(esp_a2d_source_data_cb_t dataCallback) {
+void initBtDevice(AudioDataCallback dataCallback) {
     assert(dataCallback);
 
     if (device.constructionToken != 0) {
@@ -160,10 +161,10 @@ void initBtDevice(esp_a2d_source_data_cb_t dataCallback) {
 
     // Init task dispatcher and dispatch connection routine
     initDispatcher(&device.btDispatcher);
-    dispatchTask(&device.btDispatcher, launchDevice, 0, &dataCallback, sizeof(dataCallback));
+    dispatchTask(&device.btDispatcher, launchDevice, 0, NULL, 0);
 }
 
-static void launchDevice(uint16_t unused1, void *dataCallback) {
+static void launchDevice(uint16_t unused1, void *unused2) {
     CHECK_CONSTRUCTION_TOKEN();
 
     // Init generic access profile
@@ -181,7 +182,7 @@ static void launchDevice(uint16_t unused1, void *dataCallback) {
 
     ESP_ERROR_CHECK(esp_a2d_source_init());
     esp_a2d_register_callback(a2dpCallback);
-    esp_a2d_source_register_data_callback(*((esp_a2d_source_data_cb_t *)dataCallback));
+    esp_a2d_source_register_data_callback(a2dpDataCallbackWrapper);
 
     // Prevent connections from peer devices
     esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
@@ -378,6 +379,16 @@ static void filterScanResult(esp_bt_gap_cb_param_t *param) {
 
 static void a2dpCallback(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     dispatchTask(&device.btDispatcher, deviceStateHandler, event, param, sizeof(esp_a2d_cb_param_t));
+}
+
+static int32_t a2dpDataCallbackWrapper(uint8_t *data, int32_t length) {
+    static const size_t lengthRatio = sizeof(AudioFrame) / sizeof(uint8_t);
+
+    if (!data || length < lengthRatio) {
+        return 0;
+    }
+
+    return lengthRatio * device.audioCallback((AudioFrame *) data, length / lengthRatio);
 }
 
 static void heartBeatTimer(TimerHandle_t timer) {

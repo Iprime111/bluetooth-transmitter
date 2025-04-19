@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(bluetooth-transmitter)
 
+idf_build_set_property(COMPILE_OPTIONS "-Wno-error=unused-const-variable=" APPEND)
+
 # Generate clangd configuration file with respect to xtensa c/c++ standard libs
 
 execute_process(

@@ -3,5 +3,6 @@ set(MAIN_SOURCES main.c)
 list(TRANSFORM MAIN_SOURCES PREPEND src/)
 
 idf_component_register(SRCS ${MAIN_SOURCES}
-                       INCLUDE_DIRS include)
+                       INCLUDE_DIRS include
+                       PRIV_REQUIRES bluetooth-lib oled-display esp_adc)
 
