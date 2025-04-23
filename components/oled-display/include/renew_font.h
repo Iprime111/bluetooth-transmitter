@@ -1,3 +1,6 @@
+#ifndef RENEW_FONT_H_
+#define RENEW_FONT_H_
+
 // Big thanks to Jared Sanson, who created this font
 // Font is taken from https://jared.geek.nz/2014/01/custom-fonts-for-microcontrollers/
 
@@ -103,3 +106,5 @@ static const uint8_t font[96][7] = {
 	{0x18,0x08,0x10,0x18,0x00,0x00,0x00}, // ~
 	{0x00,0x00,0x00,0x00,0x00,0x00,0x00}
 };
+
+#endif

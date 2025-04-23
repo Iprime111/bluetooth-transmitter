@@ -31,7 +31,7 @@ static void taskHandler(void *dispatcherPtr) {
     DispatcherMessage message;
 
     while (true) {
-        if (xQueueReceive(dispatcher->taskQueue, &message, (TickType_t)portMAX_DELAY) != pdPASS) {
+        if (xQueueReceive(dispatcher->taskQueue, &message, (TickType_t)portMAX_DELAY) != pdTRUE) {
             continue;
         }
 
@@ -52,7 +52,7 @@ static bool sendDispatcherMessage(Dispatcher *dispatcher, DispatcherMessage *mes
         return false;
     }
 
-    if (xQueueSend(dispatcher->taskQueue, message, kMaxQueueWaitTimeMs / portTICK_PERIOD_MS) != pdPASS) {
+    if (xQueueSend(dispatcher->taskQueue, message, kMaxQueueWaitTimeMs / portTICK_PERIOD_MS) != pdTRUE) {
         ESP_LOGE(DISPATCHER_TAG, "Task dispatch failed failed");
         return false;
     }

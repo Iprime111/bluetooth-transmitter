@@ -4,9 +4,13 @@
 #include <esp_log.h>
 #include <hal/adc_types.h>
 #include <driver/i2c_master.h>
+#include <driver/gpio.h>
+#include <soc/gpio_num.h>
 
 #include "bt_lib.h"
 #include "display.h"
+#include "encoder.h"
+#include "portmacro.h"
 
 #define ADC_TAG "ADC_CONFIG"
 
@@ -14,19 +18,25 @@ static const size_t kAdcReadLen = 256;
 
 static const int kScreenAddress = 0x3c; // 0x3c for 32-pixels tall, 0x3d for others
 
-static const int I2C_MASTER_SCL_IO = 4;
-static const int I2C_MASTER_SDA_IO = 5;
+static const int kI2CMasterScl = 4;
+static const int kI2CMasterSda = 5;
+
+static const gpio_num_t kEncoderAPort = GPIO_NUM_32;
+static const gpio_num_t kEncoderBPort = GPIO_NUM_35;
+static const gpio_num_t kEncoderCPort = GPIO_NUM_33;
 
 static int32_t audioDataCallback(AudioFrame *data, int32_t len);
 static adc_continuous_handle_t initADC(adc_channel_t *channels, size_t channelsCount);
 
+static void encoderCallback(EncoderEvent event, void *param);
+
 void app_main() {
-    
+    // Init display
     i2c_master_bus_config_t masterBusConfig = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .i2c_port = -1, // Auto selection
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = kI2CMasterScl,
+        .sda_io_num = kI2CMasterSda,
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
@@ -34,6 +44,7 @@ void app_main() {
     I2CBus screenBus;
     initI2CBus(&screenBus, &masterBusConfig);
 
+    // TODO separate function
     i2c_device_config_t deviceConfig = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = kScreenAddress,
@@ -46,17 +57,47 @@ void app_main() {
     DisplayDevice display;
     initDisplay(&display, &displayI2C, DISPLAY_128_32);
 
-    drawString(&display, "Sosi! 12345", 0);
+    // Init encoder
+    Encoder encoder;
+    initEncoder(&encoder, kEncoderAPort, kEncoderBPort, kEncoderCPort);
+    setEncoderCallback(&encoder, encoderCallback, &display);
 
+    drawString(&display, "Hui", 2);
     displayBuffer(&display);
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
-    destroyDisplay(&display);
 
+    while (true) {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    
+    //destroyEncoder(&encoder);
+    destroyDisplay(&display);
+    destroyBus(&screenBus);
 
     //adc_channel_t adcChannels[] = {ADC_CHANNEL_0};
     //initADC(adcChannels, sizeof(adcChannels) / sizeof(adcChannels[0]));
 
     //initBtDevice(audioDataCallback);
+}
+
+__attribute__((unused))  static void encoderCallback(EncoderEvent event, void *param) {
+    DisplayDevice *display = param;
+
+    switch (event) {
+    case ENCODER_STEP_CW:
+        ESP_LOGI("HUI", "CW");
+        drawString(display, "CW", 0);
+        break;
+    case ENCODER_STEP_CCW:
+        ESP_LOGI("HUI", "CCW");
+        drawString(display, "CCW", 0);
+        break;
+    case ENCODER_SWITCH_PRESSED:
+        ESP_LOGI("HUI", "Press");
+        drawString(display, "Pressed", 1);
+        break;
+    }
+
+    displayBuffer(display);
 }
 
 // 44.1kHz, dual channel (16 bits every frame channel => 32 bits every frame)

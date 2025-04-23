@@ -31,7 +31,7 @@
         if (device.constructionToken == 0) {                                                \
             ESP_LOGE(BT_DEVICE_TAG, "can't use bt device that has a construction error");   \
             abort();                                                                        \
-        }                                                                                   \
+       }                                                                                   \
     } while (0)
 
 enum {

@@ -36,6 +36,10 @@ void drawString(DisplayDevice *display, const char *string, uint8_t row) {
 
         idx++;
     }
+
+    for (;bufferCol < display->width; bufferCol++) {
+        display->buffer[bufferCol + row * display->width] = 0x00;
+    }
 }
 
 void setPixel(DisplayDevice *display, uint8_t x, uint8_t y, DisplayColor color) {
