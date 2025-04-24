@@ -1,4 +1,5 @@
-set(MAIN_SOURCES main.c)
+set(MAIN_SOURCES main.c 
+                 menu.c)
 
 list(TRANSFORM MAIN_SOURCES PREPEND src/)
 

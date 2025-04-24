@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -e
+if [[ ! -d "/home/ip111/Code/bluetooth-transmitter" ]]; then
+  echo "Cannot find source directory; Did you move it?"
+  echo "(Looking for "/home/ip111/Code/bluetooth-transmitter")"
+  echo 'Cannot force reload with this script - use "direnv reload" manually and then try again'
+  exit 1
+fi
+
+# rebuild the cache forcefully
+_nix_direnv_force_reload=1 direnv exec "/home/ip111/Code/bluetooth-transmitter" true
+
+# Update the mtime for .envrc.
+# This will cause direnv to reload again - but without re-building.
+touch "/home/ip111/Code/bluetooth-transmitter/.envrc"
+
+# Also update the timestamp of whatever profile_rc we have.
+# This makes sure that we know we are up to date.
+touch -r "/home/ip111/Code/bluetooth-transmitter/.envrc" "/home/ip111/Code/bluetooth-transmitter/.direnv"/*.rc

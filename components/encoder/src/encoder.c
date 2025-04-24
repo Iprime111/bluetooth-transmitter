@@ -136,7 +136,6 @@ void initEncoder(Encoder *encoder, gpio_num_t aPort, gpio_num_t bPort, gpio_num_
     ESP_ERROR_CHECK(gpio_isr_handler_add(bPort, isrABPortHandler, encoder));
     ESP_ERROR_CHECK(gpio_isr_handler_add(switchPort, isrSwitchPortHandler, encoder));
     
-    // TODO use dispatcher component?
     xTaskCreate(monitoringTask, "MonitoringTask", kTaskStackDepth, encoder, kTaskPriority, NULL);
 }
 

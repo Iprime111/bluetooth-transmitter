@@ -26,37 +26,35 @@
 #define APP_RC_CT_TL_GET_CAPS            (0)
 #define APP_RC_CT_TL_RN_VOLUME_CHANGE    (1)
 
+#ifndef NDEBUG
 #define CHECK_CONSTRUCTION_TOKEN()                                                          \
     do {                                                                                    \
         if (device.constructionToken == 0) {                                                \
             ESP_LOGE(BT_DEVICE_TAG, "can't use bt device that has a construction error");   \
             abort();                                                                        \
-       }                                                                                   \
+       }                                                                                    \
     } while (0)
+#else
+#define CHECK_CONSTRUCTION_TOKEN()
+#endif
 
 enum {
     HEART_BEAT_EVENT = 0xff00, // Shows state handler that it was called from the heart beat timer
 };
 
 static BluetoothDevice device = {
-    .connectionState = A2DP_STATE_IDLE,
-    .audioState = AUDIO_IDLE,
-    .peerDeviceName = {0},
-    .peerDeviceNameLen = 0,
-    .peerBda = {0},
+    .deviceState = DEVICE_STATE_IDLE,
+    .audioState = AUDIO_STATE_IDLE,
     .btDispatcher = { NULL, NULL },
     .heartBeatTimer = NULL,
     .constructionToken = 0,
 };
 
-static const uint32_t kHeartBeatTimerPeriodMs = 10000;
+static const uint32_t kHeartBeatTimerPeriodMs = 10000; // Heart beat timer period
 static const uint8_t kInquiryDuration = 10; // Discovery inquiry duration
-static const char kDeviceName[] = "bluetooth-transmitter";
+static const char kDeviceName[] = "bluetooth-transmitter"; // Bluetooth device public name
 
 // TODO remove
-//static const char kRemoteDeviceName[] = "HUAWEI FreeBuds 5i";
-static const char kRemoteDeviceName[] = "JBL Clip 4";
-
 static void launchDevice(uint16_t unused1, void *unused2);
 
 static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
@@ -85,8 +83,80 @@ static void handleAVRCEvent(uint16_t event, void *param);
 static void avrcVolumeChanged();
 static void avrcNotificationEvent(uint8_t event_id, esp_avrc_rn_param_t *event_parameter);
 
-void initBtDevice(AudioDataCallback dataCallback) {
-    assert(dataCallback);
+static void changeDeviceState(DeviceState newState);
+static void changeAudioState(AudioState newState);
+static void eventWrapper(uint16_t eventType, void *param);
+
+bool startAudio() {
+    CHECK_CONSTRUCTION_TOKEN();
+
+    if (device.deviceState == DEVICE_STATE_CONNECTED && device.audioState == AUDIO_STATE_IDLE) {
+        ESP_LOGI(BT_DEVICE_TAG, "Checking A2DP");
+        changeAudioState(AUDIO_STATE_STARTING);
+        ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY));
+
+        return true;
+    }
+
+    return false;
+}
+
+bool stopAudio() {
+    CHECK_CONSTRUCTION_TOKEN();
+
+    if (device.deviceState == DEVICE_STATE_CONNECTED && device.audioState == AUDIO_STATE_STARTED) {
+        ESP_LOGI(BT_DEVICE_TAG,  "A2DP suspending...");
+        changeAudioState(AUDIO_STATE_STOPPING);
+        ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND));
+
+        return true;
+    }
+
+    return false;
+}
+
+bool connectToDevice(PeerDeviceData *peer) {
+    assert(peer);
+    CHECK_CONSTRUCTION_TOKEN();
+
+    if (device.deviceState == DEVICE_STATE_DISCOVERING || device.deviceState == DEVICE_STATE_IDLE) {
+        char bdaStr[18];
+        device.selectedPeer = *peer;
+
+        ESP_LOGI(BT_DEVICE_TAG, "Target device found. Address: %s. Name: %s", 
+                 bdaToStr(device.selectedPeer.address, bdaStr, sizeof(bdaStr)), device.selectedPeer.name);
+        
+        changeDeviceState(DEVICE_STATE_CONNECTING);
+
+        if (device.deviceState == DEVICE_STATE_DISCOVERING) {
+            ESP_LOGI(BT_DEVICE_TAG, "Stopping device discovery...");
+            esp_bt_gap_cancel_discovery();
+        }
+
+        ESP_LOGI(BT_DEVICE_TAG, "Connecting to peer %s", device.selectedPeer.name);
+        esp_a2d_source_connect(device.selectedPeer.address);
+        return true;
+    }
+
+    return false;
+}
+
+bool startDiscovery() {
+    CHECK_CONSTRUCTION_TOKEN();
+
+    if (device.deviceState == DEVICE_STATE_IDLE) {
+        ESP_LOGI(BT_DEVICE_TAG, "Starting device discovery...");
+        changeDeviceState(DEVICE_STATE_DISCOVERING);
+        ESP_ERROR_CHECK(esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, kInquiryDuration, 0));
+
+        return true;
+    }
+
+    return false;
+}
+
+void initBtDevice(BluetoothDeviceCallbacks *callbacks) {
+    assert(callbacks);
 
     if (device.constructionToken != 0) {
         ESP_LOGE(BT_DEVICE_TAG, "Can't initialize a bluetooth device twice");
@@ -94,11 +164,19 @@ void initBtDevice(AudioDataCallback dataCallback) {
     }
 
     // Initialize BluetoothDevice fields
-    device.connectionState = A2DP_STATE_IDLE;
-    device.audioState = AUDIO_IDLE;
-    device.peerDeviceNameLen = 0;
+    device.deviceState = DEVICE_STATE_IDLE;
+    device.audioState = AUDIO_STATE_IDLE;
     device.heartBeatTimer = NULL;
     device.constructionToken = 0;
+
+    PeerDeviceData nullPeer = {
+        .name = {},
+        .nameLen = 0,
+        .address = {},
+    };
+
+    device.selectedPeer = nullPeer;
+    device.callbacks = *callbacks;
 
     esp_err_t nvsErr = nvs_flash_init();
     if (nvsErr == ESP_ERR_NVS_NO_FREE_PAGES || nvsErr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -157,16 +235,18 @@ void initBtDevice(AudioDataCallback dataCallback) {
     bdaToStr(esp_bt_dev_get_address(), deviceBda, sizeof(deviceBda));
     ESP_LOGI(BT_DEVICE_TAG, "Device address: [%s]", deviceBda);
 
+    // Init dispatchers
+    initDispatcher(&device.btDispatcher);
+    initDispatcher(&device.eventDispatcher);
+
     device.constructionToken = 1;
 
-    // Init task dispatcher and dispatch connection routine
-    initDispatcher(&device.btDispatcher);
-    dispatchTask(&device.btDispatcher, launchDevice, 0, NULL, 0);
+    // dispatch connection routine
+    // dispatchTask(&device.btDispatcher, launchDevice, 0, NULL, 0);
+    launchDevice(0, NULL);
 }
 
 static void launchDevice(uint16_t unused1, void *unused2) {
-    CHECK_CONSTRUCTION_TOKEN();
-
     // Init generic access profile
     ESP_ERROR_CHECK(esp_bt_gap_set_device_name(kDeviceName));
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(gapCallback));
@@ -188,11 +268,6 @@ static void launchDevice(uint16_t unused1, void *unused2) {
     esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
     esp_bt_gap_get_device_name();
 
-    // Start discovery
-    ESP_LOGI(BT_DEVICE_TAG, "Starting device discovery...");
-    device.connectionState = A2DP_STATE_DISCOVERING;
-    ESP_ERROR_CHECK(esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, kInquiryDuration, 0));
-
     // Start heart beat timer
     int timerId = 0;
     device.heartBeatTimer = xTimerCreate("ConnectionTimer", kHeartBeatTimerPeriodMs / portTICK_PERIOD_MS,
@@ -207,7 +282,7 @@ static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
     switch (event) {
     // Discovered result
     case ESP_BT_GAP_DISC_RES_EVT:
-        if (device.connectionState == A2DP_STATE_DISCOVERING) {
+        if (device.deviceState == DEVICE_STATE_DISCOVERING) {
             filterScanResult(param);
         }
         break;
@@ -278,16 +353,10 @@ static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
 static void handleDiscoveryStateChanged(esp_bt_gap_cb_param_t *param) {
     switch (param->disc_st_chg.state) {
     case ESP_BT_GAP_DISCOVERY_STOPPED:
-        if (device.connectionState == A2DP_STATE_DISCOVERED) {
-            ESP_LOGI(BT_DEVICE_TAG, "Discovery stopped. Connecting to peer %s", device.peerDeviceName);
-            device.connectionState = A2DP_STATE_CONNECTING;
-            esp_a2d_source_connect(device.peerBda);
-        } else {
-            // TODO exit to menu
-            ESP_LOGW(BT_DEVICE_TAG, "Discovery failed. Restarting...");
-            esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, kInquiryDuration, 0);
-            
-        }
+        if (device.deviceState != DEVICE_STATE_CONNECTING) {
+            ESP_LOGI(BT_DEVICE_TAG, "Discovery ended. Going idle");
+            changeDeviceState(DEVICE_STATE_IDLE);
+        } 
         break;
 
     case ESP_BT_GAP_DISCOVERY_STARTED:
@@ -322,11 +391,9 @@ static void filterScanResult(esp_bt_gap_cb_param_t *param) {
     char bdaStr[18];
     ESP_LOGI(BT_DEVICE_TAG, "Scanned device: %s", bdaToStr(param->disc_res.bda, bdaStr, sizeof(bdaStr)));
 
-
     uint32_t deviceClass = 0;
     int32_t rssi = -129;
     uint8_t *extInquiryResponse = NULL;
-
 
     for (int propertyIdx = 0; propertyIdx < param->disc_res.num_prop; propertyIdx++) {
         esp_bt_gap_dev_prop_t *property = &param->disc_res.prop[propertyIdx];
@@ -360,20 +427,19 @@ static void filterScanResult(esp_bt_gap_cb_param_t *param) {
     }
 
     if (extInquiryResponse) {
-        if (!getNameFromEir(extInquiryResponse, device.peerDeviceName, &device.peerDeviceNameLen)) {
+        PeerDeviceData peer = {
+            .name = {},
+            .nameLen = 0,
+            .address = {},
+        };
+
+        if (!getNameFromEir(extInquiryResponse, (uint8_t *)peer.name, &peer.nameLen)) {
             ESP_LOGE(BT_DEVICE_TAG, "Unable to get device name from extended inquiry response");
             return;
         }
 
-        // TODO add devices to queue and show to user
-        if (strcmp((char *)device.peerDeviceName, kRemoteDeviceName) == 0) {
-            ESP_LOGI(BT_DEVICE_TAG, "Target device found. Address: %s. Name: %s", bdaStr, device.peerDeviceName);
-            device.connectionState = A2DP_STATE_DISCOVERED;
-            memcpy(device.peerBda, param->disc_res.bda, ESP_BD_ADDR_LEN);
-            
-            ESP_LOGI(BT_DEVICE_TAG, "Stopping device discovery...");
-            esp_bt_gap_cancel_discovery();
-        }
+        memcpy(peer.address, param->disc_res.bda, ESP_BD_ADDR_LEN);
+        dispatchTask(&device.eventDispatcher, eventWrapper, DEVICE_DISCOVERED, &peer, sizeof(peer));
     }
 }
 
@@ -388,7 +454,7 @@ static int32_t a2dpDataCallbackWrapper(uint8_t *data, int32_t length) {
         return 0;
     }
 
-    return lengthRatio * device.audioCallback((AudioFrame *) data, length / lengthRatio);
+    return lengthRatio * device.callbacks.audioDataCallback((AudioFrame *) data, length / lengthRatio);
 }
 
 static void heartBeatTimer(TimerHandle_t timer) {
@@ -397,34 +463,30 @@ static void heartBeatTimer(TimerHandle_t timer) {
 }
 
 static void deviceStateHandler(uint16_t event, void *param) {
-    switch (device.connectionState) {
+    switch (device.deviceState) {
 
-    case A2DP_STATE_CONNECTING:
+    case DEVICE_STATE_CONNECTING:
         connectingStateHandler(event, param);
         break;
 
-    case A2DP_STATE_CONNECTED:
+    case DEVICE_STATE_CONNECTED:
         connectedStateHandler(event, param);
         break;
 
-    case A2DP_STATE_DISCONNECTING:
+    case DEVICE_STATE_DISCONNECTING:
         disconnectingStateHandler(event, param);
         break;
 
-    case A2DP_STATE_DISCONNECTED:
+    case DEVICE_STATE_DISCONNECTED:
         disconnectedStateHandler(event, param);
         break;
 
-    case A2DP_STATE_DISCOVERING:
-    case A2DP_STATE_DISCOVERED:
-        break;
-
-    case A2DP_STATE_IDLE:
-        ESP_LOGE(BT_DEVICE_TAG, "Invalid bluetooth device state: IDLE");
+    case DEVICE_STATE_IDLE:
+    case DEVICE_STATE_DISCOVERING:
         break;
 
     default:
-        ESP_LOGE(BT_DEVICE_TAG, "Invalid bluetooth device state: %d", device.connectionState);
+        ESP_LOGE(BT_DEVICE_TAG, "Invalid bluetooth device state: %d", device.deviceState);
         break;
     }
 }
@@ -436,11 +498,11 @@ static void connectingStateHandler(uint16_t event, void *param) {
     case ESP_A2D_CONNECTION_STATE_EVT:
         if (paramPtr->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
             ESP_LOGI(BT_DEVICE_TAG, "A2DP connected");
-            device.connectionState = A2DP_STATE_CONNECTED;
-            device.audioState = AUDIO_IDLE;
+            changeDeviceState(DEVICE_STATE_CONNECTED);
+            changeAudioState(AUDIO_STATE_IDLE);
         } else if (paramPtr->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             ESP_LOGI(BT_DEVICE_TAG, "A2DP disconnected");
-            device.connectionState = A2DP_STATE_DISCONNECTED;
+            changeDeviceState(DEVICE_STATE_DISCONNECTED);
         }
         break;
 
@@ -467,7 +529,7 @@ static void connectedStateHandler(uint16_t event, void *param) {
     case ESP_A2D_CONNECTION_STATE_EVT:
         if (paramPtr->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             ESP_LOGI(BT_DEVICE_TAG, "A2DP disconnected");
-            device.connectionState = A2DP_STATE_DISCONNECTED;
+            changeDeviceState(DEVICE_STATE_DISCONNECTED);
         }
         break;
 
@@ -496,7 +558,7 @@ static void disconnectingStateHandler(uint16_t event, void *param) {
     case ESP_A2D_CONNECTION_STATE_EVT:
         if (paramPtr->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
             ESP_LOGI(BT_DEVICE_TAG, "A2DP disconnected");
-            device.connectionState = A2DP_STATE_DISCONNECTED;
+            changeDeviceState(DEVICE_STATE_DISCONNECTED);
         }
         break;
     case ESP_A2D_AUDIO_STATE_EVT:
@@ -527,11 +589,11 @@ static void disconnectedStateHandler(uint16_t event, void *param) {
         break;
 
     case HEART_BEAT_EVENT: {
-        uint8_t *bda = device.peerBda;
+        uint8_t *bda = device.selectedPeer.address;
         ESP_LOGI(BT_DEVICE_TAG, "A2DP connecting to peer: %02x:%02x:%02x:%02x:%02x:%02x",
                  bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        esp_a2d_source_connect(device.peerBda);
-        device.connectionState = A2DP_STATE_CONNECTING;
+        esp_a2d_source_connect(device.selectedPeer.address);
+        changeDeviceState(DEVICE_STATE_CONNECTING);
         break;
     }
 
@@ -547,23 +609,37 @@ static void disconnectedStateHandler(uint16_t event, void *param) {
 
 static void processAudioState(uint16_t event, esp_a2d_cb_param_t *param) {
     switch (device.audioState) {
-    case AUDIO_IDLE:
-        if (event == HEART_BEAT_EVENT) {
-            ESP_LOGI(BT_DEVICE_TAG, "Checking A2DP");
-            esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
-        } else if (event == ESP_A2D_MEDIA_CTRL_ACK_EVT) {
+    case AUDIO_STATE_STARTING:
+        if (event == ESP_A2D_MEDIA_CTRL_ACK_EVT) {
             if (param && param->media_ctrl_stat.status == ESP_A2D_MEDIA_CTRL_ACK_SUCCESS &&
                 param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY) {
 
                 ESP_LOGI(BT_DEVICE_TAG, "A2DP checked. Starting media...");
                 esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_START);
-                device.audioState = AUDIO_STARTED;
+                changeAudioState(AUDIO_STATE_STARTED);
             }
         }
         break;
 
-    case AUDIO_STARTED:
-      break;
+    case AUDIO_STATE_STOPPING:
+        if (event == ESP_A2D_MEDIA_CTRL_ACK_EVT) {
+            if (param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_SUSPEND &&
+                param->media_ctrl_stat.status == ESP_A2D_MEDIA_CTRL_ACK_SUCCESS) {
+
+                ESP_LOGI(BT_DEVICE_TAG, "A2DP suspend successfully");
+                changeAudioState(AUDIO_STATE_IDLE);
+                break;
+            } else {
+                ESP_LOGI(BT_DEVICE_TAG, "A2DP suspending again...");
+                ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND));
+            }
+        }
+        break;
+
+
+    case AUDIO_STATE_IDLE:
+    case AUDIO_STATE_STARTED:
+        break;
     }
 }
 
@@ -649,7 +725,6 @@ static void handleAVRCEvent(uint16_t event, void *param) {
     }
 }
 
-// TODO what's that?
 static void avrcVolumeChanged()
 {
     if (esp_avrc_rn_evt_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_TEST, &device.avrcNotificationEventCapabilities,
@@ -670,6 +745,37 @@ static void avrcNotificationEvent(uint8_t event_id, esp_avrc_rn_param_t *event_p
         break;
  
     default:
+        break;
+    }
+}
+
+static void changeDeviceState(DeviceState newState) {
+    device.deviceState = newState;
+    // TODO reduce memory allocations?
+    dispatchTask(&device.eventDispatcher, eventWrapper, DEVICE_EVENT_STATE_CHANGED, &newState, sizeof(newState));
+}
+
+static void changeAudioState(AudioState newState) {
+    device.audioState = newState;
+    dispatchTask(&device.eventDispatcher, eventWrapper, DEVICE_AUDIO_STATE_CHANGED, &newState, sizeof(newState));
+}
+
+static void eventWrapper(uint16_t eventType, void *param) {
+    switch ((BluetoothDeviceEventType)eventType) {
+    case DEVICE_EVENT_STATE_CHANGED:
+        if (device.callbacks.deviceStateChangedCallback) {
+            device.callbacks.deviceStateChangedCallback(*((DeviceState *)param));
+        }
+        break;
+    case DEVICE_AUDIO_STATE_CHANGED:
+        if (device.callbacks.audioStateChangedCallback) {
+            device.callbacks.audioStateChangedCallback(*((AudioState *)param));
+        }
+        break;
+    case DEVICE_DISCOVERED:
+        if (device.callbacks.deviceDiscoveredCallback) {
+            device.callbacks.deviceDiscoveredCallback(param);
+        }
         break;
     }
 }

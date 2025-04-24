@@ -10,7 +10,13 @@
 
 static uint8_t charToFontIndex(char c);
 
-void drawString(DisplayDevice *display, const char *string, uint8_t row) {
+void drawStringFullLine(DisplayDevice *display, const char *string, uint8_t row, DisplayAlignment alignment) {
+    drawString(display, string, strlen(string), row, 0, display->width - 1, alignment);
+}
+
+// Left border is included in range
+// Right border is not included in range
+void drawString(DisplayDevice *display, const char *string, uint8_t len, uint8_t row, uint8_t leftBorder, uint8_t rightBorder, DisplayAlignment alignment) {
     assert(display);
     assert(string);
 
@@ -19,11 +25,22 @@ void drawString(DisplayDevice *display, const char *string, uint8_t row) {
         return;
     }
 
-    size_t idx = 0;
-    size_t bufferCol = 7;
+    rightBorder = (rightBorder <= display->width ? rightBorder : display->width);
+
+    uint8_t idx = 0;
+    uint8_t bufferCol = leftBorder;
+    
+    // If alignment to right move text begin right to needed amount and erase all pixels in unused space
+    if (alignment == ALIGNMENT_RIGHT) {
+        uint8_t newLeftBorder = rightBorder - len * kFontWidth + 1;
+
+        for (; bufferCol < newLeftBorder; bufferCol++) {
+            display->buffer[bufferCol + row * display->width] = 0x00;
+        }
+    }
 
     while (string[idx] != '\0') {
-        if (bufferCol + kFontWidth >= display->width) {
+        if (bufferCol + kFontWidth > rightBorder) {
             break;
         }
 
@@ -37,8 +54,18 @@ void drawString(DisplayDevice *display, const char *string, uint8_t row) {
         idx++;
     }
 
-    for (;bufferCol < display->width; bufferCol++) {
-        display->buffer[bufferCol + row * display->width] = 0x00;
+    if (alignment == ALIGNMENT_LEFT) {
+        for (;bufferCol < rightBorder; bufferCol++) {
+            display->buffer[bufferCol + row * display->width] = 0x00;
+        }
+    }
+}
+
+void eraseRowPart(DisplayDevice *display, uint8_t row, uint8_t start, uint8_t end) {
+    end = (end <= display->width ? end : display->width);
+
+    for (uint8_t col = start; col < end; col++) {
+        display->buffer[col + row * display->width] = 0x00;
     }
 }
 

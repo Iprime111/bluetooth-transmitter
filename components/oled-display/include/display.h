@@ -41,6 +41,11 @@ typedef enum {
     DISPLAY_COLOR_INVERSE,
 } DisplayColor;
 
+typedef enum {
+    ALIGNMENT_LEFT,
+    ALIGNMENT_RIGHT,
+} DisplayAlignment;
+
 // Control byte is [co|dc|0|0|0|0|0|0]
 // co - continuation bit. If co == 0, the transmission of the following information will contain data bytes only
 // dc - data / command selection bit. If dc == 0, the following data byte is a command. If dc == 0 the following data byte as a data which will be stored at the GDDRAM.
@@ -64,7 +69,9 @@ void displayBuffer(DisplayDevice *display);
 void clearBuffer(DisplayDevice *display);
 
 void setPixel(DisplayDevice *display, uint8_t x, uint8_t y, DisplayColor color);
-void drawString(DisplayDevice *display, const char *string, uint8_t row);
+void drawString(DisplayDevice *display, const char *string, uint8_t len, uint8_t row, uint8_t leftBorder, uint8_t rightBorder, DisplayAlignment alignment);
+void drawStringFullLine(DisplayDevice *display, const char *string, uint8_t row, DisplayAlignment alignment);
+void eraseRowPart(DisplayDevice *display, uint8_t row, uint8_t start, uint8_t end);
 
 // Display commands (taken from https://github.com/adafruit/Adafruit_SSD1306/blob/master/Adafruit_SSD1306.h)
 #define DISPLAY_MEMORYMODE 0x20          ///< See datasheet

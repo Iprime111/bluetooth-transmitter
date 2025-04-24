@@ -6,11 +6,14 @@
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
 #include <soc/gpio_num.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "bt_lib.h"
 #include "display.h"
 #include "encoder.h"
 #include "portmacro.h"
+#include "menu.h"
 
 #define ADC_TAG "ADC_CONFIG"
 
@@ -27,8 +30,6 @@ static const gpio_num_t kEncoderCPort = GPIO_NUM_33;
 
 static int32_t audioDataCallback(AudioFrame *data, int32_t len);
 static adc_continuous_handle_t initADC(adc_channel_t *channels, size_t channelsCount);
-
-static void encoderCallback(EncoderEvent event, void *param);
 
 void app_main() {
     // Init display
@@ -56,48 +57,34 @@ void app_main() {
 
     DisplayDevice display;
     initDisplay(&display, &displayI2C, DISPLAY_128_32);
+    setMenuDisplay(&display);
 
     // Init encoder
     Encoder encoder;
     initEncoder(&encoder, kEncoderAPort, kEncoderBPort, kEncoderCPort);
-    setEncoderCallback(&encoder, encoderCallback, &display);
+    setEncoderCallback(&encoder, encoderCallback, NULL);
 
-    drawString(&display, "Hui", 2);
-    displayBuffer(&display);
+    // Init bluetooth
+    BluetoothDeviceCallbacks btCallbacks = {
+        .audioDataCallback = audioDataCallback,
+        .deviceStateChangedCallback = handleDeviceStateChangedEvent,
+        .audioStateChangedCallback = NULL,
+        .deviceDiscoveredCallback = handleDeviceDiscoveredEvent,
+    };
+
+    initBtDevice(&btCallbacks);
+    startDiscovery();
 
     while (true) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     
-    //destroyEncoder(&encoder);
+    destroyEncoder(&encoder);
     destroyDisplay(&display);
     destroyBus(&screenBus);
 
     //adc_channel_t adcChannels[] = {ADC_CHANNEL_0};
     //initADC(adcChannels, sizeof(adcChannels) / sizeof(adcChannels[0]));
-
-    //initBtDevice(audioDataCallback);
-}
-
-__attribute__((unused))  static void encoderCallback(EncoderEvent event, void *param) {
-    DisplayDevice *display = param;
-
-    switch (event) {
-    case ENCODER_STEP_CW:
-        ESP_LOGI("HUI", "CW");
-        drawString(display, "CW", 0);
-        break;
-    case ENCODER_STEP_CCW:
-        ESP_LOGI("HUI", "CCW");
-        drawString(display, "CCW", 0);
-        break;
-    case ENCODER_SWITCH_PRESSED:
-        ESP_LOGI("HUI", "Press");
-        drawString(display, "Pressed", 1);
-        break;
-    }
-
-    displayBuffer(display);
 }
 
 // 44.1kHz, dual channel (16 bits every frame channel => 32 bits every frame)

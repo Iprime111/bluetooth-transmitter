@@ -10,19 +10,20 @@
 
 #include "dispatcher.h"
 
-typedef enum {
-    A2DP_STATE_IDLE,
-    A2DP_STATE_DISCOVERING,
-    A2DP_STATE_DISCOVERED,
-    A2DP_STATE_CONNECTING,
-    A2DP_STATE_CONNECTED,
-    A2DP_STATE_DISCONNECTING,
-    A2DP_STATE_DISCONNECTED,
-} A2DPState;
+typedef enum : uint16_t {
+    DEVICE_STATE_IDLE,
+    DEVICE_STATE_DISCOVERING,
+    DEVICE_STATE_CONNECTING,
+    DEVICE_STATE_CONNECTED,
+    DEVICE_STATE_DISCONNECTING,
+    DEVICE_STATE_DISCONNECTED,
+} DeviceState;
 
 typedef enum {
-    AUDIO_IDLE,
-    AUDIO_STARTED,
+    AUDIO_STATE_IDLE,
+    AUDIO_STATE_STARTING,
+    AUDIO_STATE_STARTED,
+    AUDIO_STATE_STOPPING,
 } AudioState;
 
 typedef struct __attribute__((packed)) {
@@ -30,27 +31,51 @@ typedef struct __attribute__((packed)) {
     uint16_t channel2;
 } AudioFrame;
 
+typedef struct {
+    char name[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
+    uint8_t nameLen;
+
+    esp_bd_addr_t address;
+} PeerDeviceData;
+
 typedef int32_t (*AudioDataCallback)(AudioFrame *, int32_t);
+typedef void (*DeviceStateChangeCallback)(DeviceState);
+typedef void (*AudioStateChangedCallback)(AudioState);
+typedef void (*DeviceDiscoveredCallback)(PeerDeviceData *);
+
+typedef enum {
+    DEVICE_EVENT_STATE_CHANGED,
+    DEVICE_AUDIO_STATE_CHANGED,
+    DEVICE_DISCOVERED,
+} BluetoothDeviceEventType;
 
 typedef struct {
-    A2DPState connectionState;
+    AudioDataCallback audioDataCallback;
+    DeviceStateChangeCallback deviceStateChangedCallback;
+    AudioStateChangedCallback audioStateChangedCallback;
+    DeviceDiscoveredCallback deviceDiscoveredCallback;
+} BluetoothDeviceCallbacks;
+
+typedef struct {
+    DeviceState deviceState;
     AudioState audioState;
 
-    uint8_t peerDeviceName[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
-    uint8_t peerDeviceNameLen;
-
-    esp_bd_addr_t peerBda;
+    PeerDeviceData selectedPeer;
 
     Dispatcher btDispatcher;
     TimerHandle_t heartBeatTimer;
 
     esp_avrc_rn_evt_cap_mask_t avrcNotificationEventCapabilities;
 
-    AudioDataCallback audioCallback;
+    Dispatcher eventDispatcher;
+    BluetoothDeviceCallbacks callbacks;
 
     int constructionToken;
 } BluetoothDevice;
 
-void initBtDevice(AudioDataCallback dataCallback);
-
+void initBtDevice(BluetoothDeviceCallbacks *callbacks);
+bool startAudio();
+bool stopAudio();
+bool connectToDevice(PeerDeviceData *peer);
+bool startDiscovery();
 #endif
