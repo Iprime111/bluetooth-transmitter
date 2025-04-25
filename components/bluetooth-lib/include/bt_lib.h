@@ -77,5 +77,8 @@ void initBtDevice(BluetoothDeviceCallbacks *callbacks);
 bool startAudio();
 bool stopAudio();
 bool connectToDevice(PeerDeviceData *peer);
-bool startDiscovery();
+bool disconnectFromDevice();
+bool startDiscovery(uint8_t inquiryDuration);
+
+bool setVolume(uint8_t volumeLevel);
 #endif

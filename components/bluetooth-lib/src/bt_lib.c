@@ -51,7 +51,6 @@ static BluetoothDevice device = {
 };
 
 static const uint32_t kHeartBeatTimerPeriodMs = 10000; // Heart beat timer period
-static const uint8_t kInquiryDuration = 10; // Discovery inquiry duration
 static const char kDeviceName[] = "bluetooth-transmitter"; // Bluetooth device public name
 
 // TODO remove
@@ -119,7 +118,8 @@ bool connectToDevice(PeerDeviceData *peer) {
     assert(peer);
     CHECK_CONSTRUCTION_TOKEN();
 
-    if (device.deviceState == DEVICE_STATE_DISCOVERING || device.deviceState == DEVICE_STATE_IDLE) {
+    if (device.deviceState == DEVICE_STATE_DISCOVERING || device.deviceState == DEVICE_STATE_IDLE
+        || device.deviceState == DEVICE_STATE_DISCONNECTED) {
         char bdaStr[18];
         device.selectedPeer = *peer;
 
@@ -141,18 +141,46 @@ bool connectToDevice(PeerDeviceData *peer) {
     return false;
 }
 
-bool startDiscovery() {
+bool disconnectFromDevice() {
     CHECK_CONSTRUCTION_TOKEN();
 
-    if (device.deviceState == DEVICE_STATE_IDLE) {
+    if (device.deviceState != DEVICE_STATE_CONNECTED) {
+        return false;
+    }
+
+    changeAudioState(AUDIO_STATE_IDLE);
+    esp_a2d_source_disconnect(device.selectedPeer.address);
+    changeDeviceState(DEVICE_STATE_DISCONNECTING);
+
+    return true;
+}
+
+bool startDiscovery(uint8_t inquiryDuration) {
+    CHECK_CONSTRUCTION_TOKEN();
+
+    if (device.deviceState == DEVICE_STATE_IDLE || device.deviceState == DEVICE_STATE_DISCONNECTED) {
         ESP_LOGI(BT_DEVICE_TAG, "Starting device discovery...");
         changeDeviceState(DEVICE_STATE_DISCOVERING);
-        ESP_ERROR_CHECK(esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, kInquiryDuration, 0));
+        ESP_ERROR_CHECK(esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, inquiryDuration, 0));
 
         return true;
     }
 
     return false;
+}
+
+bool setVolume(uint8_t volumeLevel) {
+    CHECK_CONSTRUCTION_TOKEN();
+
+    if (volumeLevel > 100) {
+        return false;
+    }
+
+    ESP_LOGI(BT_DEVICE_TAG, "Set absolute volume: volume %d", volumeLevel);
+    esp_avrc_ct_send_set_absolute_volume_cmd(APP_RC_CT_TL_RN_VOLUME_CHANGE, volumeLevel);
+    avrcVolumeChanged();
+
+    return true;
 }
 
 void initBtDevice(BluetoothDeviceCallbacks *callbacks) {
@@ -588,14 +616,9 @@ static void disconnectedStateHandler(uint16_t event, void *param) {
     case ESP_A2D_MEDIA_CTRL_ACK_EVT:
         break;
 
-    case HEART_BEAT_EVENT: {
-        uint8_t *bda = device.selectedPeer.address;
-        ESP_LOGI(BT_DEVICE_TAG, "A2DP connecting to peer: %02x:%02x:%02x:%02x:%02x:%02x",
-                 bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        esp_a2d_source_connect(device.selectedPeer.address);
-        changeDeviceState(DEVICE_STATE_CONNECTING);
+    // Reconnect in case of heart beat event?
+    case HEART_BEAT_EVENT:
         break;
-    }
 
     case ESP_A2D_REPORT_SNK_DELAY_VALUE_EVT:
         ESP_LOGI(BT_DEVICE_TAG, "Delay value: %u * 1/10 ms", paramPtr->a2d_report_delay_value_stat.delay_value);
@@ -739,9 +762,7 @@ static void avrcNotificationEvent(uint8_t event_id, esp_avrc_rn_param_t *event_p
     // Volume changed locally on target
     case ESP_AVRC_RN_VOLUME_CHANGE:
         ESP_LOGI(BT_DEVICE_TAG, "Volume changed: %d", event_parameter->volume);
-        ESP_LOGI(BT_DEVICE_TAG, "Set absolute volume: volume %d", event_parameter->volume);
-        esp_avrc_ct_send_set_absolute_volume_cmd(APP_RC_CT_TL_RN_VOLUME_CHANGE, event_parameter->volume);
-        avrcVolumeChanged();
+        setVolume(event_parameter->volume);
         break;
  
     default:

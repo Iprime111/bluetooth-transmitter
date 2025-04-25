@@ -72,8 +72,8 @@ void app_main() {
         .deviceDiscoveredCallback = handleDeviceDiscoveredEvent,
     };
 
+    ESP_LOGI("HUI", "hui3");
     initBtDevice(&btCallbacks);
-    startDiscovery();
 
     while (true) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);

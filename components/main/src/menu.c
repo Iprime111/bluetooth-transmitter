@@ -1,8 +1,22 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "menu.h"
+#include "bt_lib.h"
 #include "display.h"
+#include "encoder.h"
+
+typedef enum {
+    MENU_DEVICE_SELECTION,
+    MENU_AUDIO_CONTROL,
+    MENU_STARTUP,
+    MENU_DISCOVERY_IN_PROGRESS,
+    MENU_CONNECTION,
+    MENU_DISCONNECTION,
+} MenuState;
+
+static MenuState currentMenuState = MENU_STARTUP;
 
 #define kMaxPeerDevices (32)
 static PeerDeviceData peerDevices[kMaxPeerDevices] = {};
@@ -14,15 +28,50 @@ static const size_t kMenuEndRow = 4;
 static size_t pickedMenuItem = 0;
 
 static const char kPickingArrow[] = "<-";
-static const uint8_t kPickingArrowLen = sizeof(kPickingArrow);
+static const uint8_t kPickingArrowLen = sizeof(kPickingArrow) - 1;
 static const uint8_t kPickingArrowWidth = 16;
+
+static const char kRestartText[] = "RESTART DISCOVERY";
+static const uint8_t kRestartTextLen = sizeof(kRestartText) - 1;
+
+static const char kDiscoveryText[] = "SCANNING...";
+static const char kStartupText1[] = "PRESS BUTTON";
+static const char kStartupText2[] = "TO START";
+static const char kConnectingText[] = "CONNECTING...";
+static const char kDisconnectingText[] = "DISCONNECTING...";
+
+static const uint8_t kDiscoveryDuration = 5;
+
+static const uint8_t kAudioControlMenuEntries = 3;
+typedef enum {
+    AUDIO_MENU_PLAY_BUTTON = 0,
+    AUDIO_MENU_VOLUME = 1,
+    AUDIO_MENU_BACK_BUTTON = 2,
+} AudioMenuEntries;
+
+static bool isPlayingAudio = false;
+static uint8_t volumeLevel = 50;
+static bool isFocusedOnAudio = false;
+static const uint8_t kDefaultAudioLevel = 50;
+static const uint8_t kAudioStep = 5;
 
 static DisplayDevice *display = NULL;
 
-static void drawMenu();
+static void encoderDeviceSelectionMenu(EncoderEvent event);
+static void encoderAudioControlMenu(EncoderEvent event);
+static void encoderStartupMenu(EncoderEvent event);
+
+static void drawTextMenu(const char *line1, const char *line2, const char *line3, const char *line4);
+static void drawDeviceSelectionMenu();
+static void drawDiscoveryMenu();
+static void drawAudioControlMenu();
+static void drawStartupMenu();
+static void drawConnectionMenu();
+static void drawDisconnectionMenu();
 
 void setMenuDisplay(DisplayDevice *newDisplay) {
     display = newDisplay;
+    drawStartupMenu();
 }
 
 void handleDeviceDiscoveredEvent(PeerDeviceData *peer) {
@@ -43,48 +92,222 @@ void handleDeviceDiscoveredEvent(PeerDeviceData *peer) {
 }
 
 void handleDeviceStateChangedEvent(DeviceState newState) {
-    if (newState == DEVICE_STATE_IDLE) {
-        drawMenu();
+    switch (newState) {
 
-    } else if (newState == DEVICE_STATE_DISCOVERING) {
+    case DEVICE_STATE_IDLE:
+        currentMenuState = MENU_DEVICE_SELECTION;
+        drawDeviceSelectionMenu();
+        break;
+    case DEVICE_STATE_DISCOVERING:
+        currentMenuState = MENU_DISCOVERY_IN_PROGRESS;
         peerDevicesCount = 0;
+        pickedMenuItem = 0;
+        drawDiscoveryMenu();
+        break;
+    case DEVICE_STATE_CONNECTING:
+        currentMenuState = MENU_CONNECTION;
+        drawConnectionMenu();
+        break;
+    case DEVICE_STATE_CONNECTED:
+        currentMenuState = MENU_AUDIO_CONTROL;
+        pickedMenuItem = 0;
+        volumeLevel = kDefaultAudioLevel;
+        setVolume(volumeLevel);
+        drawAudioControlMenu();
+        break;
+    case DEVICE_STATE_DISCONNECTING:
+        currentMenuState = MENU_DISCONNECTION;
+        drawDisconnectionMenu();
+        break;
+    case DEVICE_STATE_DISCONNECTED:
+        currentMenuState = MENU_STARTUP;
+        drawStartupMenu();
+        break;
     }
 }
 
 void encoderCallback(EncoderEvent event, void *param) {
+    switch (currentMenuState) {
+    case MENU_DEVICE_SELECTION:
+        encoderDeviceSelectionMenu(event);
+        break;
+    case MENU_AUDIO_CONTROL:
+        encoderAudioControlMenu(event);
+        break;
+    case MENU_STARTUP:
+        encoderStartupMenu(event);
+        break;
+    case MENU_CONNECTION:
+    case MENU_DISCONNECTION:
+    case MENU_DISCOVERY_IN_PROGRESS:
+        break;
+    }
+}
+
+static void encoderDeviceSelectionMenu(EncoderEvent event) {
     switch (event) {
     case ENCODER_STEP_CW:
-        if (pickedMenuItem + 1 < peerDevicesCount) {
+        if (pickedMenuItem + 1 <= peerDevicesCount) {
             pickedMenuItem++;
-            drawMenu();
+            drawDeviceSelectionMenu();
         }
         break;
     case ENCODER_STEP_CCW:
         if (pickedMenuItem > 0) {
             pickedMenuItem--;
-            drawMenu();
+            drawDeviceSelectionMenu();
         }
         break;
     case ENCODER_SWITCH_PRESSED:
-        connectToDevice(&peerDevices[pickedMenuItem]);
+        if (pickedMenuItem < peerDevicesCount) {
+            connectToDevice(&peerDevices[pickedMenuItem]);
+        } else {
+            startDiscovery(kDiscoveryDuration);
+        }
         break;
     }
-
 }
 
-static void drawMenu() {
+static void encoderAudioControlMenu(EncoderEvent event) {
+    switch (event) {
+    case ENCODER_STEP_CW:
+        if (isFocusedOnAudio) {
+            volumeLevel = (volumeLevel + kAudioStep) % 101;
+            drawAudioControlMenu();
+            setVolume(volumeLevel);
+        } else if (pickedMenuItem + 1 < kAudioControlMenuEntries) {
+            pickedMenuItem++;
+            drawAudioControlMenu();
+        }
+        break;
+    case ENCODER_STEP_CCW:
+        if (isFocusedOnAudio) {
+            if (volumeLevel < kAudioStep) {
+                volumeLevel = 0;
+            } else {
+                volumeLevel -= kAudioStep;
+            }
+            drawAudioControlMenu();
+            setVolume(volumeLevel);
+        }else if (pickedMenuItem > 0) {
+            pickedMenuItem--;
+            drawAudioControlMenu();
+        }
+        break;
+    case ENCODER_SWITCH_PRESSED:
+        switch ((AudioMenuEntries)pickedMenuItem) {
+        case AUDIO_MENU_PLAY_BUTTON:
+            if (isPlayingAudio) {
+                stopAudio();
+            } else {
+                startAudio();
+            }
+
+            isPlayingAudio = !isPlayingAudio;
+            drawAudioControlMenu();
+            break;
+        case AUDIO_MENU_VOLUME:
+            isFocusedOnAudio = !isFocusedOnAudio;
+            break;
+        case AUDIO_MENU_BACK_BUTTON:
+            disconnectFromDevice();
+            break;
+        }
+        break;
+    }
+}
+
+static void encoderStartupMenu(EncoderEvent event) {
+    if (event != ENCODER_SWITCH_PRESSED) {
+        return;
+    }
+
+    startDiscovery(kDiscoveryDuration);
+}
+
+static void drawDeviceSelectionMenu() {
+    uint8_t textRightBorder = display->width - kPickingArrowWidth;
+
     for (uint8_t row = kMenuStartRow; row < kMenuEndRow; ++row) {
-        if (pickedMenuItem + row >= peerDevicesCount) {
+        if (pickedMenuItem + row == peerDevicesCount) {
+            drawString(display, kRestartText, kRestartTextLen, row, 0, textRightBorder, ALIGNMENT_LEFT);
+            continue;
+        }
+
+        if (pickedMenuItem + row > peerDevicesCount) {
             eraseRowPart(display, row, 0, display->width);
             continue;
         }
 
         drawString(display, peerDevices[pickedMenuItem + row].name, peerDevices[pickedMenuItem + row].nameLen, row, 
-                   0, display->width - kPickingArrowWidth, ALIGNMENT_LEFT);
+                   0, textRightBorder, ALIGNMENT_LEFT);
     }
 
     drawString(display, kPickingArrow, kPickingArrowLen, 0,
-               display->width - kPickingArrowWidth, display->width, ALIGNMENT_RIGHT);
+               textRightBorder, display->width, ALIGNMENT_RIGHT);
 
     displayBuffer(display);
+}
+
+static void drawAudioControlMenu() {
+    uint8_t textRightBorder = display->width - kPickingArrowWidth;
+
+    // Text with max possible size
+    char text[20] = {};
+    uint8_t textLen = 20;
+
+    for (uint8_t row = kMenuStartRow; row < kMenuEndRow; ++row) {
+        if (pickedMenuItem + row >= kAudioControlMenuEntries) {
+            eraseRowPart(display, row, 0, display->width);
+            continue;
+        }
+
+        switch ((AudioMenuEntries)(pickedMenuItem + row)) {
+        case AUDIO_MENU_PLAY_BUTTON:
+            if (isPlayingAudio) {
+                textLen = snprintf(text, sizeof(text), "STOP");
+            } else {
+                textLen = snprintf(text, sizeof(text), "PLAY");
+            }
+            break;
+        case AUDIO_MENU_VOLUME:
+            textLen = snprintf(text, sizeof(text), "Volume: %u%%", volumeLevel);
+            break;
+        case AUDIO_MENU_BACK_BUTTON:
+            textLen = snprintf(text, sizeof(text), "BACK");
+            break;
+        }
+
+        drawString(display, text, textLen, row, 0, textRightBorder, ALIGNMENT_LEFT);
+    }
+
+    drawString(display, kPickingArrow, kPickingArrowLen, 0,
+               textRightBorder, display->width, ALIGNMENT_RIGHT);
+
+    displayBuffer(display);
+}
+
+static void drawTextMenu(const char *line1, const char *line2, const char *line3, const char *line4) {
+    drawStringFullLine(display, line1, 0, ALIGNMENT_LEFT);
+    drawStringFullLine(display, line2, 1, ALIGNMENT_LEFT);
+    drawStringFullLine(display, line3, 2, ALIGNMENT_LEFT);
+    drawStringFullLine(display, line4, 3, ALIGNMENT_LEFT);
+
+    displayBuffer(display);
+}
+
+static void drawDiscoveryMenu() {
+    drawTextMenu("", kDiscoveryText, "", "");
+}
+
+static void drawStartupMenu() {
+    drawTextMenu("", kStartupText1, kStartupText2, "");
+}
+
+static void drawConnectionMenu() {
+    drawTextMenu("", kConnectingText, "", "");
+}
+
+static void drawDisconnectionMenu() {
+    drawTextMenu("", kDisconnectingText, "", "");
 }

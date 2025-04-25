@@ -1,4 +1,5 @@
 .clangd
 .cache
+.direnv
 build
 bluetooth-transmitter-backups
