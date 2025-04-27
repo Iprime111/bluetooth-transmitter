@@ -10,7 +10,7 @@
 #include "portmacro.h"
 
 static const size_t kEncoderQueueSize = 40;
-static const size_t kTaskStackDepth = 2048;
+static const size_t kTaskStackDepth = 4096;
 static const size_t kTaskPriority = 10;
 static const TickType_t kDebounceTimerPeriod = 50 / portTICK_PERIOD_MS;
 
@@ -136,7 +136,7 @@ void initEncoder(Encoder *encoder, gpio_num_t aPort, gpio_num_t bPort, gpio_num_
     ESP_ERROR_CHECK(gpio_isr_handler_add(bPort, isrABPortHandler, encoder));
     ESP_ERROR_CHECK(gpio_isr_handler_add(switchPort, isrSwitchPortHandler, encoder));
     
-    xTaskCreate(monitoringTask, "MonitoringTask", kTaskStackDepth, encoder, kTaskPriority, NULL);
+    xTaskCreate(monitoringTask, "EcoderMonitoringTask", kTaskStackDepth, encoder, kTaskPriority, NULL);
 }
 
 void destroyEncoder(Encoder *encoder) {

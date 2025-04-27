@@ -49,11 +49,11 @@ typedef enum {
     AUDIO_MENU_BACK_BUTTON = 2,
 } AudioMenuEntries;
 
-static bool isPlayingAudio = false;
-static uint8_t volumeLevel = 50;
-static bool isFocusedOnAudio = false;
-static const uint8_t kDefaultAudioLevel = 50;
+static const uint8_t kDefaultAudioLevel = 25;
 static const uint8_t kAudioStep = 5;
+static bool isPlayingAudio = false;
+static uint8_t volumeLevel = kDefaultAudioLevel;
+static bool isFocusedOnAudio = false;
 
 static DisplayDevice *display = NULL;
 
@@ -112,6 +112,8 @@ void handleDeviceStateChangedEvent(DeviceState newState) {
         currentMenuState = MENU_AUDIO_CONTROL;
         pickedMenuItem = 0;
         volumeLevel = kDefaultAudioLevel;
+        isPlayingAudio = false;
+        isFocusedOnAudio = false;
         setVolume(volumeLevel);
         drawAudioControlMenu();
         break;

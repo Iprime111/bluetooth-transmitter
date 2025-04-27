@@ -9,27 +9,29 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "audio_stream.h"
 #include "bt_lib.h"
 #include "display.h"
 #include "encoder.h"
 #include "portmacro.h"
 #include "menu.h"
+#include "stdbool.h"
 
-#define ADC_TAG "ADC_CONFIG"
+static const int kDisplayAddress = 0x3c; // 0x3c for 32-pixels tall displays, 0x3d for others
 
-static const size_t kAdcReadLen = 256;
-
-static const int kScreenAddress = 0x3c; // 0x3c for 32-pixels tall, 0x3d for others
-
-static const int kI2CMasterScl = 4;
-static const int kI2CMasterSda = 5;
+static const gpio_num_t kI2CMasterScl = GPIO_NUM_17;
+static const gpio_num_t kI2CMasterSda = GPIO_NUM_5;
 
 static const gpio_num_t kEncoderAPort = GPIO_NUM_32;
-static const gpio_num_t kEncoderBPort = GPIO_NUM_35;
-static const gpio_num_t kEncoderCPort = GPIO_NUM_33;
+static const gpio_num_t kEncoderBPort = GPIO_NUM_34;
+static const gpio_num_t kEncoderCPort = GPIO_NUM_35;
+
+static const int kAudioFrequency = 44100;
+static uint8_t *audioDataBuffer = NULL;
+
+static InputAudioStream stream = {};
 
 static int32_t audioDataCallback(AudioFrame *data, int32_t len);
-static adc_continuous_handle_t initADC(adc_channel_t *channels, size_t channelsCount);
 
 void app_main() {
     // Init display
@@ -48,7 +50,7 @@ void app_main() {
     // TODO separate function
     i2c_device_config_t deviceConfig = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = kScreenAddress,
+        .device_address = kDisplayAddress,
         .scl_speed_hz = 100000,
     };
 
@@ -64,6 +66,19 @@ void app_main() {
     initEncoder(&encoder, kEncoderAPort, kEncoderBPort, kEncoderCPort);
     setEncoderCallback(&encoder, encoderCallback, NULL);
 
+    // Init ADC
+    InputAudioStreamConfig audioStreamConfig = {
+        .samplingFrequency = kAudioFrequency,
+        .dinPort = GPIO_NUM_4,
+        .bclkPort = GPIO_NUM_2,
+        .mclkPort = GPIO_NUM_0,
+        .wsPort = GPIO_NUM_15,
+        .readTimeout = 1000,
+    };
+    
+    audioDataBuffer = calloc(128 * sizeof(uint32_t) * 2 + 128, sizeof(uint8_t));
+    initInputAudioStream(&stream, &audioStreamConfig);
+
     // Init bluetooth
     BluetoothDeviceCallbacks btCallbacks = {
         .audioDataCallback = audioDataCallback,
@@ -72,70 +87,31 @@ void app_main() {
         .deviceDiscoveredCallback = handleDeviceDiscoveredEvent,
     };
 
-    ESP_LOGI("HUI", "hui3");
     initBtDevice(&btCallbacks);
 
     while (true) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     
+    free(audioDataBuffer);
     destroyEncoder(&encoder);
     destroyDisplay(&display);
     destroyBus(&screenBus);
-
-    //adc_channel_t adcChannels[] = {ADC_CHANNEL_0};
-    //initADC(adcChannels, sizeof(adcChannels) / sizeof(adcChannels[0]));
 }
 
 // 44.1kHz, dual channel (16 bits every frame channel => 32 bits every frame)
-__attribute__((unused)) static int32_t audioDataCallback(AudioFrame *data, int32_t len) {
-    if (data == NULL || len < 0) {
-        return 0;
-    }
+static int32_t audioDataCallback(AudioFrame *data, int32_t len) {
 
-    for (int i = 0; i < len; i++) {
-        data[i].channel1 = rand() % (1 << 16);
-        data[i].channel2 = data[i].channel1;
+    // Every data slot is 32-bytes (for each channel). But we need only 16 of them.
+    // Let's take higher 16 bits from every slot
+    uint16_t *readData = (uint16_t *)audioDataBuffer;
+
+    readAudioData(&stream, audioDataBuffer, len * 2 * sizeof(uint32_t), NULL);
+
+    for (size_t frameIdx = 0; frameIdx < len; ++frameIdx) {
+        data[frameIdx].channel1 = readData[frameIdx * 4 + 1];
+        data[frameIdx].channel2 = readData[(frameIdx * 4) + 3];
     }
 
     return len;
 }
-
-__attribute__((unused)) static adc_continuous_handle_t initADC(adc_channel_t *channels, size_t channelsCount) {
-
-    adc_continuous_handle_t handle = NULL;
-
-    adc_continuous_handle_cfg_t adcConfig = {
-        .max_store_buf_size = 1024,
-        .conv_frame_size = kAdcReadLen,
-    };
-
-    ESP_ERROR_CHECK(adc_continuous_new_handle(&adcConfig, &handle));
-
-    adc_continuous_config_t digitalConfig = {
-        .sample_freq_hz = SOC_ADC_SAMPLE_FREQ_THRES_LOW, // from SOC_ADC_SAMPLE_FREQ_THRES_LOW to SOC_ADC_SAMPLE_FREQ_THRES_HIGH
-        .conv_mode = ADC_CONV_SINGLE_UNIT_1, // Direct memory access mode
-        .format = ADC_DIGI_OUTPUT_FORMAT_TYPE1, // type1 data format in adc_digi_output_data_t struct
-    };
-
-    adc_digi_pattern_config_t adcPattern[SOC_ADC_PATT_LEN_MAX] = {0};
-
-    digitalConfig.pattern_num = channelsCount;
-
-    for (int channelIdx = 0; channelIdx < channelsCount; channelIdx++) {
-        adcPattern[channelIdx].atten = ADC_ATTEN_DB_0; // No input attenuation
-        adcPattern[channelIdx].channel = channels[channelIdx] & 0x7;
-        adcPattern[channelIdx].unit = ADC_UNIT_1;
-        adcPattern[channelIdx].bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
-
-        ESP_LOGI(ADC_TAG, "adc_pattern[%d].atten is :%"PRIx8, channelIdx, adcPattern[channelIdx].atten);
-        ESP_LOGI(ADC_TAG, "adc_pattern[%d].channel is :%"PRIx8, channelIdx, adcPattern[channelIdx].channel);
-        ESP_LOGI(ADC_TAG, "adc_pattern[%d].unit is :%"PRIx8, channelIdx, adcPattern[channelIdx].unit);
-    }
-
-    digitalConfig.adc_pattern = adcPattern;
-    ESP_ERROR_CHECK(adc_continuous_config(handle, &digitalConfig));
-
-    return handle;
-}
-

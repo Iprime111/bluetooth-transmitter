@@ -9,7 +9,7 @@
 
 #define DISPATCHER_TAG "DISPATCHER"
 
-static const uint32_t kDefaultStackDepth = 2048;
+static const uint32_t kDefaultStackDepth = 4096;
 static const UBaseType_t kDispatcherPriority = 10;
 static const uint8_t kMaxQueueWaitTimeMs = 10;
 static const size_t kQueueLength = 10;
