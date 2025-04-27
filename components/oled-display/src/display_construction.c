@@ -139,7 +139,7 @@ void destroyDevice(I2CDevice *device) {
 
 }
 
-void destroyBus(I2CBus *bus) {
+void destroyI2CBus(I2CBus *bus) {
     if (!bus) {
         return;
     }

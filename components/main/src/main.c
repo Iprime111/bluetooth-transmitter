@@ -17,18 +17,22 @@
 #include "menu.h"
 #include "stdbool.h"
 
-static const int kDisplayAddress = 0x3c; // 0x3c for 32-pixels tall displays, 0x3d for others
+#define kMaxFramesRequested (256)
+#define kChannelsCount (2)
+#define kChannelFrameSize (sizeof(uint32_t))
 
-static const gpio_num_t kI2CMasterScl = GPIO_NUM_17;
-static const gpio_num_t kI2CMasterSda = GPIO_NUM_5;
+#define kDisplayAddress (0x3c) // 0x3c for 32-pixels tall displays, 0x3d for others
 
-static const gpio_num_t kEncoderAPort = GPIO_NUM_32;
-static const gpio_num_t kEncoderBPort = GPIO_NUM_34;
-static const gpio_num_t kEncoderCPort = GPIO_NUM_35;
+#define kI2CMasterScl (GPIO_NUM_17)
+#define kI2CMasterSda (GPIO_NUM_5)
 
-static const int kAudioFrequency = 44100;
+#define kEncoderAPort (GPIO_NUM_32)
+#define kEncoderBPort (GPIO_NUM_34)
+#define kEncoderCPort (GPIO_NUM_35)
+
+#define kAudioFrequency (44100)
+
 static uint8_t *audioDataBuffer = NULL;
-
 static InputAudioStream stream = {};
 
 static int32_t audioDataCallback(AudioFrame *data, int32_t len);
@@ -47,7 +51,6 @@ void app_main() {
     I2CBus screenBus;
     initI2CBus(&screenBus, &masterBusConfig);
 
-    // TODO separate function
     i2c_device_config_t deviceConfig = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = kDisplayAddress,
@@ -66,7 +69,7 @@ void app_main() {
     initEncoder(&encoder, kEncoderAPort, kEncoderBPort, kEncoderCPort);
     setEncoderCallback(&encoder, encoderCallback, NULL);
 
-    // Init ADC
+    // Init I2S
     InputAudioStreamConfig audioStreamConfig = {
         .samplingFrequency = kAudioFrequency,
         .dinPort = GPIO_NUM_4,
@@ -76,7 +79,7 @@ void app_main() {
         .readTimeout = 1000,
     };
     
-    audioDataBuffer = calloc(128 * sizeof(uint32_t) * 2 + 128, sizeof(uint8_t));
+    audioDataBuffer = calloc(kMaxFramesRequested * kChannelFrameSize * kChannelsCount, sizeof(uint8_t));
     initInputAudioStream(&stream, &audioStreamConfig);
 
     // Init bluetooth
@@ -85,18 +88,19 @@ void app_main() {
         .deviceStateChangedCallback = handleDeviceStateChangedEvent,
         .audioStateChangedCallback = NULL,
         .deviceDiscoveredCallback = handleDeviceDiscoveredEvent,
+        .volumeChangedCallback = volumeChangedCallback,
     };
 
     initBtDevice(&btCallbacks);
 
     while (true) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(portMAX_DELAY);
     }
     
     free(audioDataBuffer);
     destroyEncoder(&encoder);
     destroyDisplay(&display);
-    destroyBus(&screenBus);
+    destroyI2CBus(&screenBus);
 }
 
 // 44.1kHz, dual channel (16 bits every frame channel => 32 bits every frame)

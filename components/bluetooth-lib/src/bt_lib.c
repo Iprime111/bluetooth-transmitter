@@ -50,9 +50,6 @@ static BluetoothDevice device = {
     .constructionToken = 0,
 };
 
-static const uint32_t kHeartBeatTimerPeriodMs = 10000; // Heart beat timer period
-static const char kDeviceName[] = "bluetooth-transmitter"; // Bluetooth device public name
-
 // TODO remove
 static void launchDevice(uint16_t unused1, void *unused2);
 
@@ -89,56 +86,56 @@ static void eventWrapper(uint16_t eventType, void *param);
 bool startAudio() {
     CHECK_CONSTRUCTION_TOKEN();
 
-    if (device.deviceState == DEVICE_STATE_CONNECTED && device.audioState == AUDIO_STATE_IDLE) {
-        ESP_LOGI(BT_DEVICE_TAG, "Checking A2DP");
-        changeAudioState(AUDIO_STATE_STARTING);
-        ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY));
-
-        return true;
+    if (device.deviceState != DEVICE_STATE_CONNECTED || device.audioState != AUDIO_STATE_IDLE) {
+        return false;
     }
 
-    return false;
+    ESP_LOGI(BT_DEVICE_TAG, "Checking A2DP");
+    changeAudioState(AUDIO_STATE_STARTING);
+    ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY));
+
+    return true;
 }
 
 bool stopAudio() {
     CHECK_CONSTRUCTION_TOKEN();
 
-    if (device.deviceState == DEVICE_STATE_CONNECTED && device.audioState == AUDIO_STATE_STARTED) {
-        ESP_LOGI(BT_DEVICE_TAG,  "A2DP suspending...");
-        changeAudioState(AUDIO_STATE_STOPPING);
-        ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND));
-
-        return true;
+    if (device.deviceState != DEVICE_STATE_CONNECTED || device.audioState != AUDIO_STATE_STARTED) {
+        return false;
     }
 
-    return false;
+    ESP_LOGI(BT_DEVICE_TAG,  "A2DP suspending...");
+    changeAudioState(AUDIO_STATE_STOPPING);
+    ESP_ERROR_CHECK(esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_SUSPEND));
+
+    return true;
 }
 
 bool connectToDevice(PeerDeviceData *peer) {
     assert(peer);
     CHECK_CONSTRUCTION_TOKEN();
 
-    if (device.deviceState == DEVICE_STATE_DISCOVERING || device.deviceState == DEVICE_STATE_IDLE
-        || device.deviceState == DEVICE_STATE_DISCONNECTED) {
-        char bdaStr[18];
-        device.selectedPeer = *peer;
-
-        ESP_LOGI(BT_DEVICE_TAG, "Target device found. Address: %s. Name: %s", 
-                 bdaToStr(device.selectedPeer.address, bdaStr, sizeof(bdaStr)), device.selectedPeer.name);
-        
-        changeDeviceState(DEVICE_STATE_CONNECTING);
-
-        if (device.deviceState == DEVICE_STATE_DISCOVERING) {
-            ESP_LOGI(BT_DEVICE_TAG, "Stopping device discovery...");
-            esp_bt_gap_cancel_discovery();
-        }
-
-        ESP_LOGI(BT_DEVICE_TAG, "Connecting to peer %s", device.selectedPeer.name);
-        esp_a2d_source_connect(device.selectedPeer.address);
-        return true;
+    if (device.deviceState != DEVICE_STATE_DISCOVERING && device.deviceState != DEVICE_STATE_IDLE
+        && device.deviceState != DEVICE_STATE_DISCONNECTED) {
+        return false;
     }
 
-    return false;
+    char bdaStr[18];
+    device.selectedPeer = *peer;
+
+    ESP_LOGI(BT_DEVICE_TAG, "Target device found. Address: %s. Name: %s", 
+             bdaToStr(device.selectedPeer.address, bdaStr, sizeof(bdaStr)), device.selectedPeer.name);
+    
+    changeDeviceState(DEVICE_STATE_CONNECTING);
+
+    if (device.deviceState == DEVICE_STATE_DISCOVERING) {
+        ESP_LOGI(BT_DEVICE_TAG, "Stopping device discovery...");
+        esp_bt_gap_cancel_discovery();
+    }
+
+    ESP_LOGI(BT_DEVICE_TAG, "Connecting to peer %s", device.selectedPeer.name);
+    esp_a2d_source_connect(device.selectedPeer.address);
+    return true;
 }
 
 bool disconnectFromDevice() {
@@ -158,15 +155,15 @@ bool disconnectFromDevice() {
 bool startDiscovery(uint8_t inquiryDuration) {
     CHECK_CONSTRUCTION_TOKEN();
 
-    if (device.deviceState == DEVICE_STATE_IDLE || device.deviceState == DEVICE_STATE_DISCONNECTED) {
-        ESP_LOGI(BT_DEVICE_TAG, "Starting device discovery...");
-        changeDeviceState(DEVICE_STATE_DISCOVERING);
-        ESP_ERROR_CHECK(esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, inquiryDuration, 0));
-
-        return true;
+    if (device.deviceState != DEVICE_STATE_IDLE && device.deviceState != DEVICE_STATE_DISCONNECTED) {
+        return false;
     }
 
-    return false;
+    ESP_LOGI(BT_DEVICE_TAG, "Starting device discovery...");
+    changeDeviceState(DEVICE_STATE_DISCOVERING);
+    ESP_ERROR_CHECK(esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, inquiryDuration, 0));
+
+    return true;
 }
 
 bool setVolume(uint8_t volumeLevel) {
@@ -179,6 +176,8 @@ bool setVolume(uint8_t volumeLevel) {
     ESP_LOGI(BT_DEVICE_TAG, "Set absolute volume: volume %d", volumeLevel);
     esp_avrc_ct_send_set_absolute_volume_cmd(APP_RC_CT_TL_RN_VOLUME_CHANGE, volumeLevel);
     avrcVolumeChanged();
+
+    dispatchTask(&device.eventDispatcher, eventWrapper, VOLUME_CHANGED, &volumeLevel, sizeof(volumeLevel));
 
     return true;
 }
@@ -796,6 +795,11 @@ static void eventWrapper(uint16_t eventType, void *param) {
     case DEVICE_DISCOVERED:
         if (device.callbacks.deviceDiscoveredCallback) {
             device.callbacks.deviceDiscoveredCallback(param);
+        }
+        break;
+    case VOLUME_CHANGED:
+        if (device.callbacks.volumeChangedCallback) {
+            device.callbacks.volumeChangedCallback(*((uint8_t *)param));
         }
         break;
     }

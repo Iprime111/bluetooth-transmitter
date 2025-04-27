@@ -9,10 +9,10 @@
 
 #define DISPATCHER_TAG "DISPATCHER"
 
-static const uint32_t kDefaultStackDepth = 4096;
-static const UBaseType_t kDispatcherPriority = 10;
-static const uint8_t kMaxQueueWaitTimeMs = 10;
-static const size_t kQueueLength = 10;
+#define kDefaultStackDepth (4096)
+#define kDispatcherPriority (10)
+#define kMaxQueueWaitTimeMs (10)
+#define kQueueLength (10)
 
 typedef struct {
     uint32_t event;
@@ -60,7 +60,6 @@ static bool sendDispatcherMessage(Dispatcher *dispatcher, DispatcherMessage *mes
     return true;
 }
 
-// TODO deep copy callback
 bool dispatchTask(Dispatcher *dispatcher, DispatcherTask callback, uint16_t event, void *param, size_t paramLen) {
     assert(dispatcher);
 

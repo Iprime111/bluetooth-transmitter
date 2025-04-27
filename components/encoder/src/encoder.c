@@ -3,16 +3,17 @@
 #include <stdint.h>
 
 #include "encoder.h"
+#include "FreeRTOSConfig.h"
 #include "esp_err.h"
 #include "freertos/idf_additions.h"
 #include "freertos/projdefs.h"
 #include "hal/gpio_types.h"
 #include "portmacro.h"
 
-static const size_t kEncoderQueueSize = 40;
-static const size_t kTaskStackDepth = 4096;
-static const size_t kTaskPriority = 10;
-static const TickType_t kDebounceTimerPeriod = 50 / portTICK_PERIOD_MS;
+#define kEncoderQueueSize (40)
+#define kTaskStackDepth (4096)
+#define kTaskPriority (configMAX_PRIORITIES - 2)
+#define kDebounceTimerPeriod (50 / portTICK_PERIOD_MS)
 
 static void IRAM_ATTR isrABPortHandler(void *param);
 static void IRAM_ATTR isrSwitchPortHandler(void *param);

@@ -7,50 +7,13 @@
 #include "display.h"
 #include "encoder.h"
 
-typedef enum {
-    MENU_DEVICE_SELECTION,
-    MENU_AUDIO_CONTROL,
-    MENU_STARTUP,
-    MENU_DISCOVERY_IN_PROGRESS,
-    MENU_CONNECTION,
-    MENU_DISCONNECTION,
-} MenuState;
-
 static MenuState currentMenuState = MENU_STARTUP;
 
-#define kMaxPeerDevices (32)
 static PeerDeviceData peerDevices[kMaxPeerDevices] = {};
 static size_t peerDevicesCount = 0;
 
-static const size_t kMenuStartRow = 0;
-static const size_t kMenuEndRow = 4;
-
 static size_t pickedMenuItem = 0;
 
-static const char kPickingArrow[] = "<-";
-static const uint8_t kPickingArrowLen = sizeof(kPickingArrow) - 1;
-static const uint8_t kPickingArrowWidth = 16;
-
-static const char kRestartText[] = "RESTART DISCOVERY";
-static const uint8_t kRestartTextLen = sizeof(kRestartText) - 1;
-
-static const char kDiscoveryText[] = "SCANNING...";
-static const char kStartupText1[] = "PRESS BUTTON";
-static const char kStartupText2[] = "TO START";
-static const char kConnectingText[] = "CONNECTING...";
-static const char kDisconnectingText[] = "DISCONNECTING...";
-
-static const uint8_t kDiscoveryDuration = 5;
-
-static const uint8_t kAudioControlMenuEntries = 3;
-typedef enum {
-    AUDIO_MENU_PLAY_BUTTON = 0,
-    AUDIO_MENU_VOLUME = 1,
-    AUDIO_MENU_BACK_BUTTON = 2,
-} AudioMenuEntries;
-
-static const uint8_t kDefaultAudioLevel = 25;
-static const uint8_t kAudioStep = 5;
 static bool isPlayingAudio = false;
 static uint8_t volumeLevel = kDefaultAudioLevel;
 static bool isFocusedOnAudio = false;
@@ -72,6 +35,11 @@ static void drawDisconnectionMenu();
 void setMenuDisplay(DisplayDevice *newDisplay) {
     display = newDisplay;
     drawStartupMenu();
+}
+
+void volumeChangedCallback(uint8_t newVolumeLevel) {
+    volumeLevel = newVolumeLevel;
+    drawAudioControlMenu();
 }
 
 void handleDeviceDiscoveredEvent(PeerDeviceData *peer) {
@@ -111,11 +79,9 @@ void handleDeviceStateChangedEvent(DeviceState newState) {
     case DEVICE_STATE_CONNECTED:
         currentMenuState = MENU_AUDIO_CONTROL;
         pickedMenuItem = 0;
-        volumeLevel = kDefaultAudioLevel;
         isPlayingAudio = false;
         isFocusedOnAudio = false;
-        setVolume(volumeLevel);
-        drawAudioControlMenu();
+        setVolume(kDefaultAudioLevel);
         break;
     case DEVICE_STATE_DISCONNECTING:
         currentMenuState = MENU_DISCONNECTION;
@@ -174,9 +140,7 @@ static void encoderAudioControlMenu(EncoderEvent event) {
     switch (event) {
     case ENCODER_STEP_CW:
         if (isFocusedOnAudio) {
-            volumeLevel = (volumeLevel + kAudioStep) % 101;
-            drawAudioControlMenu();
-            setVolume(volumeLevel);
+            setVolume((volumeLevel + kAudioStep) % 101);
         } else if (pickedMenuItem + 1 < kAudioControlMenuEntries) {
             pickedMenuItem++;
             drawAudioControlMenu();
@@ -185,12 +149,10 @@ static void encoderAudioControlMenu(EncoderEvent event) {
     case ENCODER_STEP_CCW:
         if (isFocusedOnAudio) {
             if (volumeLevel < kAudioStep) {
-                volumeLevel = 0;
+                setVolume(0);
             } else {
-                volumeLevel -= kAudioStep;
+                setVolume(volumeLevel - kAudioStep);
             }
-            drawAudioControlMenu();
-            setVolume(volumeLevel);
         }else if (pickedMenuItem > 0) {
             pickedMenuItem--;
             drawAudioControlMenu();

@@ -59,7 +59,7 @@ void initI2CDevice(I2CDevice *device, I2CBus *bus, i2c_device_config_t *deviceCo
 
 void destroyDisplay(DisplayDevice *display);
 void destroyDevice(I2CDevice *device);
-void destroyBus(I2CBus *device);
+void destroyI2CBus(I2CBus *device);
 
 void sendCommandList(DisplayDevice *display, uint8_t *commands, size_t len);
 void sendSingleCommand(DisplayDevice *display, uint8_t command);

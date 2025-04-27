@@ -42,11 +42,13 @@ typedef int32_t (*AudioDataCallback)(AudioFrame *, int32_t);
 typedef void (*DeviceStateChangeCallback)(DeviceState);
 typedef void (*AudioStateChangedCallback)(AudioState);
 typedef void (*DeviceDiscoveredCallback)(PeerDeviceData *);
+typedef void (*VolumeChangedCallback)(uint8_t);
 
 typedef enum {
     DEVICE_EVENT_STATE_CHANGED,
     DEVICE_AUDIO_STATE_CHANGED,
     DEVICE_DISCOVERED,
+    VOLUME_CHANGED,
 } BluetoothDeviceEventType;
 
 typedef struct {
@@ -54,6 +56,7 @@ typedef struct {
     DeviceStateChangeCallback deviceStateChangedCallback;
     AudioStateChangedCallback audioStateChangedCallback;
     DeviceDiscoveredCallback deviceDiscoveredCallback;
+    VolumeChangedCallback volumeChangedCallback;
 } BluetoothDeviceCallbacks;
 
 typedef struct {
@@ -72,6 +75,9 @@ typedef struct {
 
     int constructionToken;
 } BluetoothDevice;
+
+#define kHeartBeatTimerPeriodMs (10000) // Heart beat timer period
+#define kDeviceName "bluetooth-transmitter" // Bluetooth device public name
 
 void initBtDevice(BluetoothDeviceCallbacks *callbacks);
 bool startAudio();

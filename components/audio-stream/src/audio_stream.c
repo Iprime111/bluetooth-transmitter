@@ -12,7 +12,6 @@
 
 #define kI2SUnit (0)
 
-
 void initInputAudioStream(InputAudioStream *stream, InputAudioStreamConfig *config) {
     assert(stream);
     assert(config);
