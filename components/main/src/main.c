@@ -23,12 +23,12 @@
 
 #define kDisplayAddress (0x3c) // 0x3c for 32-pixels tall displays, 0x3d for others
 
-#define kI2CMasterScl (GPIO_NUM_17)
-#define kI2CMasterSda (GPIO_NUM_5)
+#define kI2CMasterScl (GPIO_NUM_5)
+#define kI2CMasterSda (GPIO_NUM_17)
 
-#define kEncoderAPort (GPIO_NUM_32)
+#define kEncoderAPort (GPIO_NUM_35)
 #define kEncoderBPort (GPIO_NUM_34)
-#define kEncoderCPort (GPIO_NUM_35)
+#define kEncoderCPort (GPIO_NUM_32)
 
 #define kAudioFrequency (44100)
 
@@ -72,10 +72,10 @@ void app_main() {
     // Init I2S
     InputAudioStreamConfig audioStreamConfig = {
         .samplingFrequency = kAudioFrequency,
-        .dinPort = GPIO_NUM_4,
+        .dinPort = GPIO_NUM_15,
         .bclkPort = GPIO_NUM_2,
         .mclkPort = GPIO_NUM_0,
-        .wsPort = GPIO_NUM_15,
+        .wsPort = GPIO_NUM_4,
         .readTimeout = 1000,
     };
     
