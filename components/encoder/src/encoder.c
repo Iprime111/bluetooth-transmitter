@@ -106,7 +106,7 @@ void initEncoder(Encoder *encoder, gpio_num_t aPort, gpio_num_t bPort, gpio_num_
 
     uint64_t aMask = 1ull << aPort;
     uint64_t bMask = 1ull << bPort;
-    uint64_t cMask = 1ull << switchPort;
+    uint64_t switchMask = 1ull << switchPort;
 
     encoder->aPort = aPort;
     encoder->bPort = bPort;
@@ -121,12 +121,13 @@ void initEncoder(Encoder *encoder, gpio_num_t aPort, gpio_num_t bPort, gpio_num_
     gpio_config_t gpioConfig = {
         .intr_type = GPIO_INTR_ANYEDGE,
         .mode = GPIO_MODE_INPUT,
-        .pin_bit_mask = aMask | bMask | cMask,
+        .pin_bit_mask = aMask | bMask | switchMask,
         .pull_down_en = 0,
         .pull_up_en = 0,
     };
 
     ESP_ERROR_CHECK(gpio_config(&gpioConfig));
+    ESP_ERROR_CHECK(gpio_pullup_en(switchPort));
     
     gpio_set_intr_type(switchPort, GPIO_INTR_NEGEDGE);
 

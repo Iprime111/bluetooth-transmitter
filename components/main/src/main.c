@@ -114,8 +114,11 @@ static int32_t audioDataCallback(AudioFrame *data, int32_t len) {
 
     for (size_t frameIdx = 0; frameIdx < len; ++frameIdx) {
         data[frameIdx].channel1 = readData[frameIdx * 4 + 1];
-        data[frameIdx].channel2 = readData[(frameIdx * 4) + 3];
+        data[frameIdx].channel2 = readData[frameIdx * 4 + 3];
+
     }
+
+    ESP_LOGI("AAA", "%" PRIu16 "\n", data[0].channel1);
 
     return len;
 }
