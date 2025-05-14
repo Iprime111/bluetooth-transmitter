@@ -162,7 +162,20 @@ bluetooth-transmitter/
 ---
 
 ## 📸 Фото и демонстрация
-TODO
+**Фотография финальной версии устройства**
+
+<img src="docs/transmitter.jpg" alt="Bluetooth аудио передатчик" width=600 height=600>
+
+**Фотография прототипа**
+
+<img src="docs/prototype.jpg" alt="Прототип" width=600 height=600>
+
+**Демонстрация работы**:
+
+<video width="480" height="640" controls>
+  <source src="docs/demonstration.mp4" type="video/mp4">
+</video>
+
 ---
 
 ## 🔮 Будущие улучшения
