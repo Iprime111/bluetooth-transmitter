@@ -168,6 +168,8 @@ bluetooth-transmitter/
   <source src="docs/demonstration.mp4" type="video/mp4">
 </video>
 
+[Ссылка, если видео не отображается на github](./docs/demonstration.mp4)
+
 ---
 
 ## 🔮 Будущие улучшения
